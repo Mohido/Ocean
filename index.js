@@ -28,8 +28,8 @@ const rotateVector2 = (vector, angle) => {
 const initWaves = () => {
     projObjects.waves = [];         // Clear the waves
     const medianLength = 4.0;       // the length of the median wave. We will create waves randomly from half to double this median
-    const ampToLengthRatio = 1/6;   // The ratio of the amplitude to wavelength. The amplitude must correspond to teh length for a abetter control
-    const numOfWaves = 4;           // number of waves we need to create.
+    const ampToLengthRatio = 1/10;   // The ratio of the amplitude to wavelength. The amplitude must correspond to teh length for a abetter control
+    const numOfWaves = 3;           // number of waves we need to create.
     // Wind Direction. Waves will be randomly created with this direction with some tilt
     const wind = new THREE.Vector2(0,1);
     const gravity = 10;             // 10m/s2
@@ -128,7 +128,7 @@ const initOcean = () => {
 
                     nPos.x += (WSteep[i] /${ projObjects.waves.length}.0) * pis_cycle * WDirs[i*2] * wcos;
                     nPos.y += (WSteep[i] /${ projObjects.waves.length}.0) * pis_cycle * WDirs[i*2+1] * wcos;
-                    nPos.z = WAmplitudes[i] * sin(dp*f + p);
+                    nPos.z += WAmplitudes[i] * sin(dp*f + p);
                 }
 
                 // Create the normal matrix in the vertex shader
@@ -190,6 +190,36 @@ const initOcean = () => {
 }
 
 
+const bouncePoint = (point,time) => {
+    const PI2 = Math.PI*2;
+    const nPos = new THREE.Vector3(point.x, point.y, point.z);
+
+    for(let i = 0 ; i < projObjects.waves.length ; i++){
+        // Pis in a cycle
+        const pis_cycle = projObjects.waves[i].length / PI2;
+        // Vertices on the same line are projected
+        const dir = projObjects.waves[i].dir;
+        const nDir = (new THREE.Vector2(dir[0], dir[1])).setLength(1);
+
+        const dp =  nDir.dot(new THREE.Vector2(point.x, point.y));
+
+        // frequency of the wave
+        const f = PI2/projObjects.waves[i].length;
+
+        // phase = speed*frequney*time
+        const p = projObjects.waves[i].speed  * f *time;
+
+        // wave cos
+        const wcos = Math.cos(f*dp + p);
+
+        nPos.x += ( projObjects.waves[i].steepness / projObjects.waves.length) * pis_cycle * nDir.x * wcos;
+        nPos.y += ( projObjects.waves[i].steepness / projObjects.waves.length) * pis_cycle * nDir.y * wcos;
+        nPos.z += projObjects.waves[i].amplitude * Math.sin(dp*f + p);
+    }
+    return nPos;
+}
+
+
 const initScene = async () =>{
     // Engine Initialization
     projObjects.scene = new THREE.Scene();
@@ -209,7 +239,8 @@ const init = async () => {
 
 const draw = () => {
     const animate = () => {
-        projObjects.waveMat.uniforms.time.value = performance.now() / 2000; // Time in seconds
+        projObjects.waveMat.uniforms.time.value = performance.now() / 5000; // Time in seconds
+        const p = bouncePoint(projObjects.camera.position, projObjects.waveMat.uniforms.time.value);
         projObjects.controls.update();
         projObjects.renderer.render( projObjects.scene, projObjects.camera );
         projObjects.renderer.setAnimationLoop( animate );
