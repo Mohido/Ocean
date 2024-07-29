@@ -40,6 +40,7 @@ const meta = {
     ohorS : 40,         // Ocean horizontal Segmentaion count
     overS : 40,         // Ocean vertical Segmentaion count
     tsize : 512,        // Texture size
+    mwaves : 5          // Max number of waves can be generated
 }
 
 // Gui Parameters
@@ -80,16 +81,8 @@ const passes = [
     }
 ]
 
-// Initialize objects with custom shader material
-const ocean = new THREE.Mesh(
-    new THREE.PlaneGeometry(meta.owidth, meta.oheight, meta.ohorS, meta.overS),
-    new THREE.ShaderMaterial({
-        glslVersion: THREE.GLSL3,
-        side: THREE.DoubleSide,
-        vertexShader: fstPassVShader,
-        fragmentShader: fstPassFShader
-}))
-
+// Initialize ocean geometry. Scenes will use this to create a mesh.
+const ocean = new THREE.PlaneGeometry(meta.owidth, meta.oheight, meta.ohorS, meta.overS); 
 
 
 
@@ -114,14 +107,19 @@ function initGUI() {
 
         // Remove the folder itself
         folder.domElement.parentNode.removeChild(folder.domElement);
+        update();
     }
 
     function addWave() {
+        if(parameters.waves.length >= meta.mwaves){
+            console.error("You have reached the maximum number of waves that you can generate. Max Number: ", meta.mwaves);
+            return;
+        }
         const wave = {
-            length: 0,
+            length: 1,
             speed: 0,
             amplitude: 0,
-            angle: 0,   // Angle of the wind
+            angle: 0,       // Angle of the wind
             steepness: 0
         };
         parameters.waves.push(wave);
@@ -133,6 +131,7 @@ function initGUI() {
         folder.add(wave, 'speed', 1, 10, 0.1);
         folder.add({ remove: () => removeWave(folder, wave) }, 'remove').name(`Remove Wave ${parameters.waves.length}`);
         folder.open();
+        update();
     }
 
     document.body.appendChild( stats.dom );
@@ -141,6 +140,42 @@ function initGUI() {
 
     // Add button to add new rows
     gui.add({ addWave }, 'addWave').name('Add Wave');
+    // gui.add({ update : updateFstPassUniforms }, 'update').name('Update');
+    gui.onChange(update);
+}
+
+/**
+ * In case there is no waves yet, it returns wcount = 0 and a temporary float32Array with 1 element on all uniforms. 
+ * Thus, it is only a place holder to avoid shader issues.
+ * @returns All the uniforms needed for teh first pass
+ */
+function getFstPassUniforms() { 
+    if(parameters.waves.length === 0){
+        const temp = new Float32Array(1).fill(0.0);
+        return {
+            time :        {value: performance.now() / 2000},
+            wcount :      {value : parameters.waves.length},
+            wlengths:     {value : temp},
+            wspeeds:      {value : temp},
+            wamplitudes:  {value : temp},
+            wdirs:      {value : temp},
+            wsteepnesses: {value : temp} 
+        }
+    }else{
+        return {
+            time :        {value: performance.now() / 2000},
+            wcount :      {value : parameters.waves.length},
+            wlengths:     {value : (parameters.waves.map((wave) => wave.length)    )},
+            wspeeds:      {value : (parameters.waves.map((wave) => wave.speed)     )} ,
+            wamplitudes:  {value : (parameters.waves.map((wave) => wave.amplitude) )} ,
+            wdirs:        {value : (parameters.waves.map((wave) => { 
+                                const radian = (wave.angle/180) * 3.1415926535;
+                                return [Math.cos(radian), Math.sin(radian)]
+                            }).flat()) } ,     
+            wsteepnesses: {value : (parameters.waves.map((wave) => wave.steepness) )} 
+        }
+    }
+
 }
 
 // Initializes the Initial render pass
@@ -148,9 +183,22 @@ function initFstPass() {
     // Set camera position to look down the ocean
     passes[0].camera.position.z = 1;
     passes[0].camera.lookAt(new THREE.Vector3(0,0,0));
-    
+    const mesh = new THREE.Mesh(
+        ocean,
+        new THREE.ShaderMaterial({
+            glslVersion: THREE.GLSL3,
+            side: THREE.DoubleSide,
+            defines: {
+                PI2 : 6.28318530718,
+                PI : 3.1415926535,
+            },
+            uniforms: getFstPassUniforms(),
+            vertexShader: fstPassVShader(meta.mwaves),
+            fragmentShader: fstPassFShader(meta.mwaves)
+    }))
+
     // Adding the ocean
-    passes[0].scene.add(ocean);
+    passes[0].scene.add(mesh);
 }
 
 // Initializes the final render pass
@@ -162,22 +210,22 @@ function initSndPass() {
     passes[1].controls = new OrbitControls( passes[1].camera,renderer.domElement );
     passes[1].controls.update();
 
-    const plane = ocean.clone();
-    // plane.material =  new THREE.MeshBasicMaterial({color: new THREE.Color(1,0,0), side: THREE.DoubleSide});
-    plane.material =  new THREE.ShaderMaterial({
-        side: THREE.DoubleSide,
-        glslVersion : THREE.GLSL3,
-        uniforms: {
-            tPosition: { value: renderTarget.textures[0] },  // Ocean Positions
-            tNormal: { value: renderTarget.textures[1] }     // Ocean Normals
-        },
-        vertexShader:sndPassVShader,
-        fragmentShader: sndPassFShader 
-    });
-    plane.material.needsUpdate = true;
-    
+    const mesh = new THREE.Mesh(
+        ocean, 
+        new THREE.ShaderMaterial({
+            side: THREE.DoubleSide,
+            glslVersion : THREE.GLSL3,
+            uniforms: {
+                tPosition: { value: renderTarget.textures[0] },  // Ocean Positions
+                tNormal: { value: renderTarget.textures[1] }     // Ocean Normals
+            },
+            vertexShader:sndPassVShader,
+            fragmentShader: sndPassFShader 
+        })
+    );
+        
     // Adding the ocean
-    passes[1].scene.add(plane);
+    passes[1].scene.add(mesh);
     passes[1].scene.background = new THREE.Color(0,0,0);
 }
 
@@ -198,9 +246,22 @@ function renderSndPass() {
     renderer.render(passes[1].scene, passes[1].camera);
 }
 
+function updateFstPassUniforms() {
+    passes[0].scene.traverse( function ( child ) {
+        if ( child.material !== undefined && child.material.isShaderMaterial ) {
+            Object.entries(getFstPassUniforms()).forEach(([uniform, data]) => {
+                if (child.material.uniforms[uniform] !== undefined) {
+                    child.material.uniforms[uniform].value = data.value;
+                }
+            });
+        }
+    })
+}
+
 // Updates everything
 function update() {
     passes[1].controls.update();
+    updateFstPassUniforms();
     stats.update();
 }
 
