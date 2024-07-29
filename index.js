@@ -28,12 +28,12 @@ const rotateVector2 = (vector, angle) => {
 const initWaves = () => {
     projObjects.waves = [];         // Clear the waves
     const medianLength = 3.0;       // the length of the median wave. We will create waves randomly from half to double this median
-    const ampToLengthRatio = 1/20;   // The ratio of the amplitude to wavelength. The amplitude must correspond to teh length for a abetter control
-    const numOfWaves = 3;           // number of waves we need to create.
+    const ampToLengthRatio = 1/30;   // The ratio of the amplitude to wavelength. The amplitude must correspond to teh length for a abetter control
+    const numOfWaves = 4;           // number of waves we need to create.
     // Wind Direction. Waves will be randomly created with this direction with some tilt
     const wind = new THREE.Vector2(0,1);
     const gravity = 10;             // 10m/s2
-    const windMaxAngle = Math.PI/4; // Generating random winds tilted with this angle
+    const windMaxAngle = Math.PI/2; // Generating random winds tilted with this angle
     
     
     for(let i = 0 ; i < numOfWaves; i++){
@@ -59,8 +59,8 @@ const initRenderer = () => {
     projObjects.renderer = new THREE.WebGLRenderer();
     document.body.appendChild( projObjects.renderer.domElement );
     projObjects.renderer.setSize(window.innerWidth, window.innerHeight, false);
-    // projObjects.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    // projObjects.renderer.toneMappingExposure = 1;
+    projObjects.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    projObjects.renderer.toneMappingExposure = 1;
 }
 
 const initCamera = () => {
@@ -72,7 +72,7 @@ const initCamera = () => {
 
 
 const initBackground = async () => {
-    new THREE.TextureLoader().load('public/kloppenheim_06_puresky_1k.jpg' , (texture) => {
+    new EXRLoader().load('public/syferfontein_1d_clear_puresky_1k.exr' , (texture) => {
         const tex =  projObjects.pmremGenerator.fromEquirectangular(texture).texture;
         tex.mapping = THREE.CubeUVReflectionMapping;
         projObjects.scene.background = tex;
@@ -93,10 +93,8 @@ const initOcean = async () => {
             WSteep : {value :  projObjects.waves.flatMap((value) => value.steepness)},
 
             myEnvMap : {value : null, type: 't'},
-            reflective: {value : 0.6},
+            reflective: {value : 0.3},
             color : {value : new THREE.Vector3(0,94,184).multiplyScalar(1/256)},
-            roughness : {value : 0.0},
-            metalness : {value : 0.0},
             envMapIntensity : {value : 1.0},
         },
         vertexShader: `
@@ -130,15 +128,17 @@ const initOcean = async () => {
                     // wave cos
                     float wcos = cos(f*dp + p);
                     float wsin = sin(dp*f + p);
+                    float nAmp = (WAmplitudes[i] / ${ projObjects.waves.length}.0);
+                    float nStp = (WSteep[i] / ${ projObjects.waves.length}.0);
 
-                    nPos.x += (WSteep[i] / ${ projObjects.waves.length}.0) * pis_cycle * WDirs[i*2] * wcos;
-                    nPos.y += (WSteep[i] / ${ projObjects.waves.length}.0) * pis_cycle * WDirs[i*2+1] * wcos;
-                    // nPos.z += (WAmplitudes[i] / ${ projObjects.waves.length}.0) * wsin;
+                    nPos.x += nStp * pis_cycle * WDirs[i*2] * wcos;
+                    nPos.y +=  nStp * pis_cycle * WDirs[i*2+1] * wcos;
+                    // nPos.z +=  nAmp * wsin;
                     nPos.z += WAmplitudes[i] * wsin;
 
                     nNormal.x -= dir.x * f * WAmplitudes[i] * wcos;
                     nNormal.y -= dir.y * f * WAmplitudes[i] * wcos;
-                    nNormal.z -=  (WSteep[i] / ${ projObjects.waves.length}.0) * wsin;
+                    nNormal.z -= nStp * wsin;
                 }
 
 
@@ -187,7 +187,7 @@ const initOcean = async () => {
                 // Sample the equirectangular texture
                 vec3 envColor = texture(myEnvMap, vec2(u, v)).rgb;
     
-                vec3 finalColor = color*(1.0 - reflective) + envColor*reflective;
+                vec3 finalColor = mix(color, vec3(1.0), vPosition.y)*(1.0 - reflective) + envColor*reflective;
                 
                 // gl_FragColor = vec4(envColor,1.0);
                 gl_FragColor = vec4(finalColor, 1.0);
@@ -197,7 +197,7 @@ const initOcean = async () => {
     } );
 
     // Objects Initializations
-    const geometry = new THREE.PlaneGeometry(20, 20, 40, 40);
+    const geometry = new THREE.PlaneGeometry(100, 100, 400, 400);
     const plane = new THREE.Mesh( geometry, projObjects.waveMat );
     plane.rotation.x = -Math.PI/2;
 
@@ -255,7 +255,7 @@ const initScene = async () =>{
     projObjects.pmremGenerator = new THREE.PMREMGenerator(projObjects.renderer);
     projObjects.pmremGenerator.compileEquirectangularShader(); 
     await initOcean();
-    new THREE.TextureLoader().load('public/kloppenheim_06_puresky_1k_blurred.jpg' , (texture) => {
+    new EXRLoader().load('public/syferfontein_1d_clear_puresky_1k_blurred.exr' , (texture) => {
         texture.mapping = THREE.EquirectangularReflectionMapping;
         // texture.encoding = THREE.RGBEEncoding; // Assuming your input texture is HDR
 
