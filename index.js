@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PMREMGenerator } from 'three/extras/PMREMGenerator.js';
-import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 
 
 const projObjects = {
@@ -10,7 +10,8 @@ const projObjects = {
     controls: undefined,        // controls three object
     renderer: undefined,        // Renderer Three Object
     waves : [],
-    waveMat : undefined
+    waveMat : undefined,
+    pmremGenerator : undefined
 }
 const wireframeMode = false;
 
@@ -58,6 +59,8 @@ const initRenderer = () => {
     projObjects.renderer = new THREE.WebGLRenderer();
     document.body.appendChild( projObjects.renderer.domElement );
     projObjects.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    // projObjects.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // projObjects.renderer.toneMappingExposure = 1;
 }
 
 const initCamera = () => {
@@ -69,22 +72,16 @@ const initCamera = () => {
 
 
 const initBackground = async () => {
-    const hdri = await new RGBELoader().loadAsync('./public/kloppenheim_06_puresky_1k.hdr');
-    hdri.mapping = THREE.EquirectangularReflectionMapping;
-    projObjects.scene.background = hdri;
-    hdri.dispose();
+    new THREE.TextureLoader().load('public/kloppenheim_06_puresky_1k.jpg' , (texture) => {
+        const tex =  projObjects.pmremGenerator.fromEquirectangular(texture).texture;
+        tex.mapping = THREE.CubeUVReflectionMapping;
+        projObjects.scene.background = tex;
+        texture.dispose();
+    }); 
 }
 
 
 const initOcean = async () => {
-    const hdrib = await new RGBELoader().loadAsync('./public/kloppenheim_06_puresky_1k_blurred.hdr');
-    hdrib.mapping = THREE.EquirectangularReflectionMapping;
-    
-    const pmrem = new PMREMGenerator(projObjects.renderer);
-    const texture = pmrem.fromEquirectangular(hdrib).texture.clone();
-    texture.mapping = THREE.EquirectangularReflectionMapping;
-    pmrem.dispose();
-
     projObjects.waveMat = new THREE.ShaderMaterial( {
         uniforms: {
             time : {value : 1.0},
@@ -95,10 +92,12 @@ const initOcean = async () => {
             WLengths : {value:  projObjects.waves.flatMap((value) => value.length)},
             WSteep : {value :  projObjects.waves.flatMap((value) => value.steepness)},
 
-            envMap : {value: hdrib, type: 't'},
-
+            myEnvMap : {value : null, type: 't'},
             reflective: {value : 0.6},
-            color : {value : new THREE.Vector3(0,94,184).multiplyScalar(1/256)}
+            color : {value : new THREE.Vector3(0,94,184).multiplyScalar(1/256)},
+            roughness : {value : 0.0},
+            metalness : {value : 0.0},
+            envMapIntensity : {value : 1.0},
         },
         vertexShader: `
             varying vec3 vNormal;
@@ -144,14 +143,14 @@ const initOcean = async () => {
 
 
                 // Create the normal matrix in the vertex shader
-                vNormal = transpose(inverse(mat3(modelMatrix))) * normal.xyz;
+                vNormal = transpose(inverse(mat3(modelMatrix))) * nNormal.xyz;
                 vNormal = normalize(vNormal);
                 vPosition = vec3(modelMatrix * vec4(nPos, 1.0));
                 gl_Position = projectionMatrix * modelViewMatrix * vec4(nPos.xyz, 1.0);
             }
         `,
         fragmentShader: `
-            uniform samplerCube envMap; 
+            uniform sampler2D myEnvMap; 
             uniform vec3 color;
             uniform float reflective;
 
@@ -165,36 +164,37 @@ const initOcean = async () => {
             varying vec3 vPosition;
             varying vec3 vNormal;
 
+            #define PI2 6.28318530718
+            #define PI 3.14159265
+
             void main() {
-                if(reflective == 0.0){
-                    gl_FragColor = vec4(vNormal, 1.0); 
-                    return;
-                }
-                
-
-
+                // if(reflective == 0.0){
+                //     gl_FragColor = vec4(vNormal, 1.0); 
+                //     return;
+                // }
                 vec3 I = normalize(vPosition - cameraPosition);
                 vec3 R = reflect(I, normalize(vNormal));
-                vec3 envColor = textureCube(envMap, R).rgb;
 
-                if (envColor == vec3(0.0)) {
-                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); // Red color for debugging
-                    return;
-                } else {
-                    gl_FragColor = vec4(envColor,1.0);
-                    return;
-                }
 
-                // vec3 finalColor = color*(1.0 - reflective) + envColor*reflective;
+                // Convert reflection vector to spherical coordinates
+                float theta = atan(R.z, R.x); // Longitude
+                float phi = acos(R.y); // Latitude
 
-                // gl_FragColor = vec4(finalColor, 1.0);
+                // Convert spherical coordinates to UV coordinates
+                float u = (theta / PI2) + 0.5;
+                float v = phi / PI;
+
+                // Sample the equirectangular texture
+                vec3 envColor = texture(myEnvMap, vec2(u, v)).rgb;
+    
+                vec3 finalColor = color*(1.0 - reflective) + envColor*reflective;
+                
+                // gl_FragColor = vec4(envColor,1.0);
+                gl_FragColor = vec4(finalColor, 1.0);
             }
         `,
         side: THREE.DoubleSide,
     } );
-
-    
-    // projObjects.waveMat.needsUpdate = true;
 
     // Objects Initializations
     const geometry = new THREE.PlaneGeometry(20, 20, 40, 40);
@@ -214,8 +214,6 @@ const initOcean = async () => {
     }else{
         projObjects.scene.add(plane);
     }
-    texture.dispose();
-    hdrib.dispose();
 }
 
 
@@ -253,8 +251,29 @@ const initScene = async () =>{
     // Engine Initialization
     projObjects.scene = new THREE.Scene();
     initWaves();
+
+    projObjects.pmremGenerator = new THREE.PMREMGenerator(projObjects.renderer);
+    projObjects.pmremGenerator.compileEquirectangularShader(); 
     await initOcean();
+    new THREE.TextureLoader().load('public/kloppenheim_06_puresky_1k_blurred.jpg' , (texture) => {
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        // texture.encoding = THREE.RGBEEncoding; // Assuming your input texture is HDR
+
+        // const tex =  projObjects.pmremGenerator.fromEquirectangular(texture).texture;
+        // console.log(tex);   
+
+        projObjects.waveMat.envMap = {value: texture, type:'t'} ;
+        projObjects.waveMat.uniforms.myEnvMap =  {value: texture, type:'t'};
+        // projObjects.waveMat.uniforms.color.value = new THREE.Vector3(0,1,0);
+        projObjects.waveMat.needsUpdate = true;
+        projObjects.waveMat.uniformsNeedUpdate = true;
+
+        texture.dispose();
+    }); 
+    
     await initBackground();
+
+    projObjects.pmremGenerator.dispose();
 }
 
 
