@@ -10,7 +10,16 @@
  *  * 2 Cameras:
  *      - First camera is used to render the first scene. It is an orthographic camera used to generate textures data
  *      - Second camera is used in the final pass render.
+ * 
+ *  * 2 RenderTargets
+ *      - One for the normals of the wave
+ *      - One for the added position of the wave
+ * 
+ * NOTE: Start reading function callstacks from the main() function.
+ * 
+ * Copyrights and Contributions: Mohammed Al-Mahdawi <Mohido>
  */
+
 
 /////////////////////////////////////////////
 /////////////Imports Section/////////////////
@@ -18,6 +27,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'; 
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+import { fstPassFShader, fstPassVShader, sndPassFShader, sndPassVShader } from './shaders.js';
 
 
 
@@ -27,14 +37,13 @@ import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 const meta = {
     owidth : 20,        // Ocean width in THREE.JS units
     oheight : 20,       // Ocean height in THREE.JS units
-    ohorS : 40,        // Ocean horizontal Segmentaion count
-    overS : 40,        // Ocean vertical Segmentaion count
+    ohorS : 40,         // Ocean horizontal Segmentaion count
+    overS : 40,         // Ocean vertical Segmentaion count
     tsize : 512,        // Texture size
 }
 
 // Initialize the renderer
 const renderer = new THREE.WebGLRenderer();
-// Check for WebGL2 support
 if (!renderer.capabilities.isWebGL2) {
     console.error('WebGL2 is required but not supported');
 }
@@ -48,11 +57,8 @@ const renderTarget = new THREE.WebGLRenderTarget(window.innerWidth, window.inner
     type: THREE.FloatType,
     format: THREE.RGBAFormat,
     encoding: THREE.LinearEncoding,
-    depthBuffer: true,
-    stencilBuffer: false,
     count :  2
 });
-
 
 // Create scenes and camera
 const passes = [
@@ -67,32 +73,14 @@ const passes = [
     }
 ]
 
-
 // Initialize objects with custom shader material
 const ocean = new THREE.Mesh(
     new THREE.PlaneGeometry(meta.owidth, meta.oheight, meta.ohorS, meta.overS),
     new THREE.ShaderMaterial({
         glslVersion: THREE.GLSL3,
         side: THREE.DoubleSide,
-        vertexShader: `
-            void main() {
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `,
-        fragmentShader: `
-            precision highp float;
-			precision highp int;
-            
-            // layout(location = 0) out vec4 pc_FragColor;
-            layout(location = 0) out vec4 tPosition;
-            layout(location = 1) out vec4 tNormal;
-
-            void main() {
-                tPosition = vec4(1.0, 0.0, 0.0, 1.0);           // Red 
-                tNormal = vec4(0.0, 1.0, 0.0, 1.0);          // Green
-                // pc_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
-            }
-        `
+        vertexShader: fstPassVShader,
+        fragmentShader: fstPassFShader
 }))
 
 
@@ -102,7 +90,7 @@ const ocean = new THREE.Mesh(
 /////////////// Functions ///////////////////
 /////////////////////////////////////////////
 
-// Creates first pass objects
+// Initializes the Initial render pass
 function initFstPass() {
     // Set camera position to look down the ocean
     passes[0].camera.position.z = 1;
@@ -112,21 +100,7 @@ function initFstPass() {
     passes[0].scene.add(ocean);
 }
 
-
-// Draw the first pass into the screen.
-function viewFstPass() {
-    renderer.render(passes[0].scene, passes[0].camera);
-}
-
-
-// Renders the data into the render targets
-function renderFstPass() {
-    renderer.setRenderTarget(renderTarget);
-    renderer.render(passes[0].scene, passes[0].camera);
-}
-
-
-
+// Initializes the final render pass
 function initSndPass() {
     // Set camera position to look down the ocean
     passes[1].camera.position.z = 10;
@@ -135,7 +109,6 @@ function initSndPass() {
     passes[1].controls = new OrbitControls( passes[1].camera,renderer.domElement );
     passes[1].controls.update();
 
-    
     const plane = ocean.clone();
     // plane.material =  new THREE.MeshBasicMaterial({color: new THREE.Color(1,0,0), side: THREE.DoubleSide});
     plane.material =  new THREE.ShaderMaterial({
@@ -145,30 +118,8 @@ function initSndPass() {
             tPosition: { value: renderTarget.textures[0] },  // Ocean Positions
             tNormal: { value: renderTarget.textures[1] }     // Ocean Normals
         },
-        vertexShader: `
-            varying vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `,
-        fragmentShader: ` 
-            precision highp float;
-			precision highp int;
-
-            uniform sampler2D tPosition;
-            uniform sampler2D tNormal;
-            varying vec2 vUv;
-
-            layout(location = 0) out vec4 pc_FragColor;
-
-            void main() {
-                vec3 tPos = texture(tPosition, vUv).rgb;
-                vec3 tNorm = texture(tNormal, vUv).rgb;
-
-                pc_FragColor = vec4(tPos.r, tNorm.g, 0.0, 1.0);
-            }
-        `
+        vertexShader:sndPassVShader,
+        fragmentShader: sndPassFShader 
     });
     plane.material.needsUpdate = true;
     
@@ -178,26 +129,36 @@ function initSndPass() {
 }
 
 
-function renderSndPass() { 
+// render first pass into screen
+function viewFstPass() {
+    renderer.render(passes[0].scene, passes[0].camera);
+}
+
+// Renders the data into the render targets
+function renderFstPass() {
+    renderer.setRenderTarget(renderTarget);
+    renderer.render(passes[0].scene, passes[0].camera);
     renderer.setRenderTarget(null);
+}
+
+// Renders second pass into screen
+function renderSndPass() { 
     renderer.render(passes[1].scene, passes[1].camera);
 }
 
-
+// Updates everything
 function update() {
     passes[1].controls.update();
 }
 
-// Initiate Drawing
+// Main Function
 function main(){
     initFstPass();
     initSndPass();
-    let printed = false;
-    // // Animation loop
+
     const animate = () => {
         renderFstPass();
         renderSndPass();
-        // viewFstPass();
         update();
         requestAnimationFrame(animate);
     };
