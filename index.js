@@ -9,11 +9,10 @@ const projObjects = {
     camera: undefined,          // Camera Three object
     controls: undefined,        // controls three object
     renderer: undefined,        // Renderer Three Object
-    hdri : undefined,           // Three texture (gotten by rgbeloader)
     waves : [],
     waveMat : undefined
 }
-const wireframeMode = true;
+const wireframeMode = false;
 
 
 // Function to rotate a 2D vector
@@ -27,8 +26,8 @@ const rotateVector2 = (vector, angle) => {
 
 const initWaves = () => {
     projObjects.waves = [];         // Clear the waves
-    const medianLength = 4.0;       // the length of the median wave. We will create waves randomly from half to double this median
-    const ampToLengthRatio = 1/10;   // The ratio of the amplitude to wavelength. The amplitude must correspond to teh length for a abetter control
+    const medianLength = 3.0;       // the length of the median wave. We will create waves randomly from half to double this median
+    const ampToLengthRatio = 1/20;   // The ratio of the amplitude to wavelength. The amplitude must correspond to teh length for a abetter control
     const numOfWaves = 3;           // number of waves we need to create.
     // Wind Direction. Waves will be randomly created with this direction with some tilt
     const wind = new THREE.Vector2(0,1);
@@ -50,6 +49,7 @@ const initWaves = () => {
             }
         );
     }
+
 }
 
 
@@ -69,19 +69,21 @@ const initCamera = () => {
 
 
 const initBackground = async () => {
-    const rgbeLoader = new RGBELoader();
-    projObjects.hdri = await rgbeLoader.loadAsync('./public/kloppenheim_06_puresky_1k.hdr');
-    projObjects.hdri.mapping = THREE.EquirectangularReflectionMapping;
-
-    // Set the scene background to the HDR texture
-    projObjects.scene.background = projObjects.hdri;
+    const hdri = await new RGBELoader().loadAsync('./public/kloppenheim_06_puresky_1k.hdr');
+    hdri.mapping = THREE.EquirectangularReflectionMapping;
+    projObjects.scene.background = hdri;
+    hdri.dispose();
 }
 
 
-const initOcean = () => {
-    const pmremGenerator = new PMREMGenerator(projObjects.renderer);
-    const envMap = pmremGenerator.fromEquirectangular(projObjects.hdri).texture.clone();
-    pmremGenerator.dispose();
+const initOcean = async () => {
+    const hdrib = await new RGBELoader().loadAsync('./public/kloppenheim_06_puresky_1k_blurred.hdr');
+    hdrib.mapping = THREE.EquirectangularReflectionMapping;
+    
+    const pmrem = new PMREMGenerator(projObjects.renderer);
+    const texture = pmrem.fromEquirectangular(hdrib).texture.clone();
+    texture.mapping = THREE.EquirectangularReflectionMapping;
+    pmrem.dispose();
 
     projObjects.waveMat = new THREE.ShaderMaterial( {
         uniforms: {
@@ -92,10 +94,11 @@ const initOcean = () => {
             WAmplitudes : {value:  projObjects.waves.flatMap((value) => value.amplitude)},
             WLengths : {value:  projObjects.waves.flatMap((value) => value.length)},
             WSteep : {value :  projObjects.waves.flatMap((value) => value.steepness)},
-            
-            envMap: { value: envMap },
-            reflective: {value : 1.0},
-            color : {value : new THREE.Vector3(1,1,1)}
+
+            envMap : {value: hdrib, type: 't'},
+
+            reflective: {value : 0.6},
+            color : {value : new THREE.Vector3(0,94,184).multiplyScalar(1/256)}
         },
         vertexShader: `
             varying vec3 vNormal;
@@ -112,6 +115,8 @@ const initOcean = () => {
 
             void main() {      
                 vec3 nPos = vec3(position.xy,0.0);
+                vec3 nNormal = vec3(0.0, 0.0, 1.0);
+
 
                 for(int i = 0 ; i < ${ projObjects.waves.length} ; i++){
                     // Pis in a cycle
@@ -125,16 +130,23 @@ const initOcean = () => {
                     float p = WSpeeds[i] * f * time;
                     // wave cos
                     float wcos = cos(f*dp + p);
+                    float wsin = sin(dp*f + p);
 
-                    nPos.x += (WSteep[i] /${ projObjects.waves.length}.0) * pis_cycle * WDirs[i*2] * wcos;
-                    nPos.y += (WSteep[i] /${ projObjects.waves.length}.0) * pis_cycle * WDirs[i*2+1] * wcos;
-                    nPos.z += WAmplitudes[i] * sin(dp*f + p);
+                    nPos.x += (WSteep[i] / ${ projObjects.waves.length}.0) * pis_cycle * WDirs[i*2] * wcos;
+                    nPos.y += (WSteep[i] / ${ projObjects.waves.length}.0) * pis_cycle * WDirs[i*2+1] * wcos;
+                    // nPos.z += (WAmplitudes[i] / ${ projObjects.waves.length}.0) * wsin;
+                    nPos.z += WAmplitudes[i] * wsin;
+
+                    nNormal.x -= dir.x * f * WAmplitudes[i] * wcos;
+                    nNormal.y -= dir.y * f * WAmplitudes[i] * wcos;
+                    nNormal.z -=  (WSteep[i] / ${ projObjects.waves.length}.0) * wsin;
                 }
 
+
                 // Create the normal matrix in the vertex shader
-                vNormal = transpose(inverse(mat3(modelMatrix))) * normal;
-                vPosition = vec3(modelMatrix * vec4(position, 1.0));
-                // gl_Position = projectionMatrix * modelViewMatrix * vec4(position.xyz, 1.0);
+                vNormal = transpose(inverse(mat3(modelMatrix))) * normal.xyz;
+                vNormal = normalize(vNormal);
+                vPosition = vec3(modelMatrix * vec4(nPos, 1.0));
                 gl_Position = projectionMatrix * modelViewMatrix * vec4(nPos.xyz, 1.0);
             }
         `,
@@ -155,22 +167,37 @@ const initOcean = () => {
 
             void main() {
                 if(reflective == 0.0){
-                    gl_FragColor = vec4(color, 1.0); 
+                    gl_FragColor = vec4(vNormal, 1.0); 
                     return;
                 }
                 
+
+
                 vec3 I = normalize(vPosition - cameraPosition);
                 vec3 R = reflect(I, normalize(vNormal));
                 vec3 envColor = textureCube(envMap, R).rgb;
-            
-                gl_FragColor = vec4(envColor, 1.0);
+
+                if (envColor == vec3(0.0)) {
+                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); // Red color for debugging
+                    return;
+                } else {
+                    gl_FragColor = vec4(envColor,1.0);
+                    return;
+                }
+
+                // vec3 finalColor = color*(1.0 - reflective) + envColor*reflective;
+
+                // gl_FragColor = vec4(finalColor, 1.0);
             }
         `,
         side: THREE.DoubleSide,
     } );
+
     
+    // projObjects.waveMat.needsUpdate = true;
+
     // Objects Initializations
-    const geometry = new THREE.PlaneGeometry(100, 100, 100, 100);
+    const geometry = new THREE.PlaneGeometry(20, 20, 40, 40);
     const plane = new THREE.Mesh( geometry, projObjects.waveMat );
     plane.rotation.x = -Math.PI/2;
 
@@ -187,6 +214,8 @@ const initOcean = () => {
     }else{
         projObjects.scene.add(plane);
     }
+    texture.dispose();
+    hdrib.dispose();
 }
 
 
@@ -223,9 +252,9 @@ const bouncePoint = (point,time) => {
 const initScene = async () =>{
     // Engine Initialization
     projObjects.scene = new THREE.Scene();
-    await initBackground();
     initWaves();
-    initOcean();
+    await initOcean();
+    await initBackground();
 }
 
 
@@ -239,7 +268,7 @@ const init = async () => {
 
 const draw = () => {
     const animate = () => {
-        projObjects.waveMat.uniforms.time.value = performance.now() / 5000; // Time in seconds
+        projObjects.waveMat.uniforms.time.value = performance.now() / 10000; // Time in seconds
         const p = bouncePoint(projObjects.camera.position, projObjects.waveMat.uniforms.time.value);
         projObjects.controls.update();
         projObjects.renderer.render( projObjects.scene, projObjects.camera );
