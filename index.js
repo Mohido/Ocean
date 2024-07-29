@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { PMREMGenerator } from 'three/extras/PMREMGenerator.js';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 
 
