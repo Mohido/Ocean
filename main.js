@@ -28,8 +28,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'; 
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { fstPassFShader, fstPassVShader, sndPassFShader, sndPassVShader } from './shaders.js';
-
-
+import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+import Stats from 'three/addons/libs/stats.module.js';
 
 /////////////////////////////////////////////
 /////////////Constants Section///////////////
@@ -42,6 +42,13 @@ const meta = {
     tsize : 512,        // Texture size
 }
 
+// Gui Parameters
+const stats = new Stats();
+const gui = new GUI();
+const parameters = {
+    waves: []
+};
+
 // Initialize the renderer
 const renderer = new THREE.WebGLRenderer();
 if (!renderer.capabilities.isWebGL2) {
@@ -51,7 +58,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // multiple render target object. This is used as an output for the first pass. It won't be shown.
-const renderTarget = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+const renderTarget = new THREE.WebGLRenderTarget(meta.tsize, meta.tsize, {
     minFilter: THREE.NearestFilter,
     magFilter: THREE.NearestFilter,
     type: THREE.FloatType,
@@ -89,6 +96,52 @@ const ocean = new THREE.Mesh(
 /////////////////////////////////////////////
 /////////////// Functions ///////////////////
 /////////////////////////////////////////////
+
+// Initializes teh stats and the waves adding window
+function initGUI() {
+    // Function to remove a row of parameters
+    function removeWave(folder, wave) {
+        // Remove wave
+        const index = parameters.waves.indexOf(wave);
+        if (index > -1) {
+            parameters.waves.splice(index, 1);
+        }
+
+         // Remove all controllers within the folder
+        folder.controllers.forEach(controller => {
+            controller.destroy();
+        });
+
+        // Remove the folder itself
+        folder.domElement.parentNode.removeChild(folder.domElement);
+    }
+
+    function addWave() {
+        const wave = {
+            length: 0,
+            speed: 0,
+            amplitude: 0,
+            angle: 0,   // Angle of the wind
+            steepness: 0
+        };
+        parameters.waves.push(wave);
+        const folder = gui.addFolder(`Wave ${parameters.waves.length}`);
+        folder.add(wave, 'length', 1, 10, 0.1);
+        folder.add(wave, 'amplitude', 0.01, 10, 0.01);
+        folder.add(wave, 'steepness', 0, 1, 0.01);
+        folder.add(wave, 'angle', 0, 360, 0.1);
+        folder.add(wave, 'speed', 1, 10, 0.1);
+        folder.add({ remove: () => removeWave(folder, wave) }, 'remove').name(`Remove Wave ${parameters.waves.length}`);
+        folder.open();
+    }
+
+    document.body.appendChild( stats.dom );
+    stats.dom.style.transformOrigin = `top left`;
+    stats.dom.style.transform = `scale(1.3)`;
+
+    // Add button to add new rows
+    gui.add({ addWave }, 'addWave').name('Add Wave');
+}
 
 // Initializes the Initial render pass
 function initFstPass() {
@@ -128,7 +181,6 @@ function initSndPass() {
     passes[1].scene.background = new THREE.Color(0,0,0);
 }
 
-
 // render first pass into screen
 function viewFstPass() {
     renderer.render(passes[0].scene, passes[0].camera);
@@ -149,10 +201,12 @@ function renderSndPass() {
 // Updates everything
 function update() {
     passes[1].controls.update();
+    stats.update();
 }
 
 // Main Function
 function main(){
+    initGUI();
     initFstPass();
     initSndPass();
 
