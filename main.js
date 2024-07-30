@@ -238,9 +238,7 @@ function initSndPass() {
             },
             glslVersion : THREE.GLSL3,
             uniforms: {
-                scount : {value : 30},
-                roughness : {value: 1},
-                fcolor : {value: new THREE.Color(0.25, 0.25, 0.25)},
+                roughness : {value: 0.8},
                 color : {value : new THREE.Color(0.0, 0.35, 0.73)},
                 envMap : {value : passes[1].scene.background},
                 tPosition: { value: renderTarget.textures[0] },  // Ocean Positions
@@ -346,6 +344,7 @@ function loadEnvMap () {
     new EXRLoader().load('public/syferfontein_1d_clear_puresky_1k.exr', (texture) => {
         texture.mapping = THREE.EquirectangularReflectionMapping;
         passes[1].scene.background = texture;
+        passes[1].scene.backgroundRotation.y = Math.PI/2.5;
         texture.dispose();
     })
     

@@ -119,7 +119,7 @@ export const sndPassFShader = `
 
     uniform sampler2D envMap;
     uniform vec3 color;     // Surface Diffuse color
-
+    uniform float roughness; // surface roughness
     varying vec3 wPos;
     varying vec3 wNor;
     varying vec2 vUv;
@@ -139,8 +139,10 @@ export const sndPassFShader = `
     void main() {
         vec3 I = normalize(wPos - cameraPosition);
         vec3 R = reflect(I, normalize(wNor));
+        vec3 L_ = texture(envMap, dirToUv(R)).rgb;
 
-        pc_FragColor = vec4(texture(envMap, dirToUv(R)).rgb, 1.0);
+        vec3 L = color/PI + L_*(1.0 - roughness);
+        pc_FragColor = vec4(L, 1.0);
     }
 `;
 
