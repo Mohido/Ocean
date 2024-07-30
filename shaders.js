@@ -98,15 +98,15 @@ export const sndPassVShader =  `
 
     void main() {
         // Local new position and normal
-        vec3 nPos = texture(tPosition, uv).xyz; 
+        vec3 nPos = texture(tPosition, uv).xzy + position.xyz; 
         vec3 nNor = texture(tNormal, uv).xyz;
         
         // World position and normal
-        wPos = (modelMatrix * vec4(position + nPos, 1.0)).xyz;
+        wPos = (modelMatrix * vec4(nPos, 1.0)).xyz;
         wNor = normalize(transpose(inverse(mat3(modelMatrix))) * nNor.xyz);
         vUv = uv;
 
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position + nPos, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(nPos, 1.0);
     }
 `;
 

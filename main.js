@@ -220,14 +220,16 @@ function initFstPass() {
 // Initializes the final render pass
 function initSndPass() {
     // Set camera position to look down the ocean
-    passes[1].camera.position.z = 10;
+    passes[1].camera.position.z = 40;
+    passes[1].camera.position.x = 40;
+    passes[1].camera.position.y = 40;
     passes[1].camera.lookAt(new THREE.Vector3(0,0,0));
 
     passes[1].controls = new OrbitControls( passes[1].camera,renderer.domElement );
     passes[1].controls.update();
 
     const mesh = new THREE.Mesh(
-        ocean, 
+        ocean.clone().rotateX(Math.PI/2), 
         new THREE.ShaderMaterial({
             side: THREE.DoubleSide,
             defines: {
