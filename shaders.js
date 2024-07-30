@@ -17,9 +17,11 @@ export const fstPassVShader = (maxCount) =>
 
     varying vec3 nNormal;
     varying vec3 nPosition;
+    varying vec3 oPosition;
 
     void main() {
         nPosition = position.xyz;
+        oPosition = position.xyz;
         nNormal = normal.xyz;
 
         for(int i = 0 ; i < wcount ; i++){
@@ -46,12 +48,7 @@ export const fstPassVShader = (maxCount) =>
             nPosition.y +=  nStp * l_pi2 * dir.y * wcos;
             // nPos.z +=  nAmp * wsin;
             nPosition.z += wamplitudes[i] * wsin;
-
-            nNormal.x -= dir.x * f * wamplitudes[i] * wcos;
-            nNormal.y -= dir.y * f * wamplitudes[i] * wcos;
-            nNormal.z -= nStp * wsin;
         }
-        nNormal = normalize(nNormal);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
 `;
@@ -68,6 +65,7 @@ export const fstPassFShader = (maxCount) =>
     uniform float wamplitudes[${maxCount}];
     uniform float wdirs[${maxCount*2}];
     uniform float wsteepnesses[${maxCount}];
+    uniform float time;
 
 
     // layout(location = 0) out vec4 pc_FragColor;
@@ -75,12 +73,38 @@ export const fstPassFShader = (maxCount) =>
     layout(location = 1) out vec4 tNormal;
 
     varying vec3 nNormal;
+    varying vec3 oPosition;
     varying vec3 nPosition;
 
     void main() {
         tPosition = vec4(nPosition, 1.0);               // Red 
-        tNormal = vec4(nNormal, 1.0);                   // Green
-        // pc_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+
+        vec3 fNormal = nNormal.xyz;
+        for(int i = 0 ; i < wcount ; i++){
+            // Pis in a cycle
+            float l_pi2 = wlengths[i] / PI2;
+            
+            // Vertices on the same line are projected
+            vec2 dir = normalize(vec2(wdirs[i*2], wdirs[i*2+1]));
+            float dp = dot(dir, oPosition.xy);
+
+            // frequency of the wave
+            float f = PI2/wlengths[i];
+
+            // phase = speed*frequney*time
+            float p = wspeeds[i] * f * time;
+
+            // wave cos
+            float wcos = cos(f*dp + p);
+            float wsin = sin(dp*f + p);
+            float nAmp = (wamplitudes[i] / float(wcount));
+            float nStp = (wsteepnesses[i] / float(wcount));
+
+            fNormal.x -= dir.x * f * wamplitudes[i] * wcos;
+            fNormal.y -= dir.y * f * wamplitudes[i] * wcos;
+            fNormal.z -= nStp * wsin;
+        }
+        tNormal = vec4(normalize(fNormal), 1.0);                   // Green
     }
 `;
 
@@ -93,19 +117,12 @@ export const sndPassVShader =  `
     uniform sampler2D tNormal;    
 
     varying vec3 wPos; // World position
-    varying vec3 wNor; // World position
     varying vec2 vUv;
 
     void main() {
-        // Local new position and normal
         vec3 nPos = texture(tPosition, uv).xzy + position.xyz; 
-        vec3 nNor = texture(tNormal, uv).xyz;
-        
-        // World position and normal
         wPos = (modelMatrix * vec4(nPos, 1.0)).xyz;
-        wNor = normalize(transpose(inverse(mat3(modelMatrix))) * nNor.xyz);
         vUv = uv;
-
         gl_Position = projectionMatrix * modelViewMatrix * vec4(nPos, 1.0);
     }
 `;
@@ -117,11 +134,13 @@ export const sndPassFShader = `
     precision highp int;
     layout(location = 0) out vec4 pc_FragColor;
 
+    uniform sampler2D tNormal;
     uniform sampler2D envMap;
     uniform vec3 color;     // Surface Diffuse color
     uniform float roughness; // surface roughness
+    uniform mat4 modelMatrix;
+    
     varying vec3 wPos;
-    varying vec3 wNor;
     varying vec2 vUv;
 
     vec2 dirToUv(vec3 R){
@@ -137,12 +156,15 @@ export const sndPassFShader = `
     }
 
     void main() {
+        vec3 nNor = texture(tNormal, vUv).xyz;
+        vec3 wNor = transpose(inverse(mat3(modelMatrix))) * nNor;
+
         vec3 I = normalize(wPos - cameraPosition);
         vec3 R = reflect(I, normalize(wNor));
         vec3 L_ = texture(envMap, dirToUv(R)).rgb;
 
         vec3 L = color/PI + L_*(1.0 - roughness);
-        pc_FragColor = vec4(L, 1.0);
+        pc_FragColor = vec4(L.rgb, 1.0);
     }
 `;
 

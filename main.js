@@ -92,6 +92,18 @@ const passes = [
 // Initialize ocean geometry. Scenes will use this to create a mesh.
 const ocean = new THREE.PlaneGeometry(meta.owidth, meta.oheight, meta.ohorS, meta.overS); 
 const torus = new THREE.TorusGeometry();
+torus.rotateX(Math.PI/2);
+torus.translate(0,0.2,0);
+const torusMesh = new THREE.Mesh(
+    torus,
+    new THREE.MeshStandardMaterial({
+        color:          new THREE.Color(0.3, 0, 0),
+        roughness:      0.8,
+        metalness:      0.,
+        envMapIntensity :  1,
+        envMapRotation : new THREE.Euler(0, Math.PI/2.5, 0)
+    })
+);
 
 
 /////////////////////////////////////////////
@@ -128,14 +140,18 @@ function initGUI() {
             speed: 0,
             amplitude: 0,
             angle: 0,       // Angle of the wind
-            steepness: 0
+            steepness: 0,
+            dir : [1,0]
         };
         parameters.waves.push(wave);
         const folder = gui.addFolder(`Wave ${parameters.waves.length}`);
         folder.add(wave, 'length', 1, 10, 0.1);
         folder.add(wave, 'amplitude', 0.01, 10, 0.01);
         folder.add(wave, 'steepness', 0, 1, 0.01);
-        folder.add(wave, 'angle', 0, 360, 0.1);
+        folder.add(wave, 'angle', 0, 360, 0.1).onChange((angle) => {
+            const radian = (angle/180) * 3.1415926535;
+            wave.dir =  [Math.cos(radian), Math.sin(radian)]
+        });
         folder.add(wave, 'speed', 0, 10, 0.1);
         folder.add({ remove: () => removeWave(folder, wave) }, 'remove').name(`Remove Wave ${parameters.waves.length}`);
         folder.open();
@@ -184,10 +200,7 @@ function getFstPassUniforms() {
             wlengths:     {value : (parameters.waves.map((wave) => wave.length)    )},
             wspeeds:      {value : (parameters.waves.map((wave) => wave.speed)     )} ,
             wamplitudes:  {value : (parameters.waves.map((wave) => wave.amplitude) )} ,
-            wdirs:        {value : (parameters.waves.map((wave) => { 
-                                const radian = (wave.angle/180) * 3.1415926535;
-                                return [Math.cos(radian), Math.sin(radian)]
-                            }).flat()) } ,     
+            wdirs:        {value : (parameters.waves.flatMap(wave => wave.dir)) } ,     
             wsteepnesses: {value : (parameters.waves.map((wave) => wave.steepness) )} 
         }
     }
@@ -249,18 +262,7 @@ function initSndPass() {
         })
     );
 
-    torus.rotateX(Math.PI/2);
-    torus.translate(0,0.2,0);
-    const torusMesh = new THREE.Mesh(
-        torus,
-        new THREE.MeshStandardMaterial({
-            color:          new THREE.Color(0.3, 0, 0),
-            roughness:      0.8,
-            metalness:      0.,
-            envMapIntensity :  1,
-            envMapRotation : new THREE.Euler(0, Math.PI/2.5, 0)
-        })
-    );
+    
 
     // Adding the ocean
     passes[1].scene.add(mesh);
@@ -381,11 +383,61 @@ function loadEnvMap () {
     });
 };
 
+function bounce(position){
+    const uniforms = getFstPassUniforms();
+    const nPosition = new THREE.Vector3(0,0,0);
+    const nNormal = new THREE.Vector3(0,0,1);
+
+    for(let i = 0 ; i < uniforms.wcount.value ; i++){
+        // Pis in a cycle
+        const l_pi2 = uniforms.wlengths.value[i] / (Math.PI*2);
+        
+        // Vertices on the same line are projected
+        const dir = new THREE.Vector2(uniforms.wdirs.value[i*2], uniforms.wdirs.value[i*2+1]).setLength(1);
+        const dp = dir.dot(position);
+
+        // frequency of the wave
+        const f = (Math.PI*2)/uniforms.wlengths.value[i];
+
+        // phase = speed*frequney*time
+        const p = uniforms.wspeeds.value[i]* f * uniforms.time.value;
+
+        // wave cos
+        const wcos = Math.cos(f*dp + p);
+        const wsin = Math.sin(dp*f + p);
+        const nAmp = (uniforms.wamplitudes.value[i] / uniforms.wcount.value);
+        const nStp = (uniforms.wsteepnesses.value[i] / uniforms.wcount.value);
+
+        nPosition.x += nStp * l_pi2 * dir.x * wcos;
+        nPosition.y +=  nStp * l_pi2 * dir.y * wcos;
+        // nPos.z +=  nAmp * wsin;
+        nPosition.z += uniforms.wamplitudes.value[i] * wsin;
+
+        nNormal.x -= dir.x * f * uniforms.wamplitudes.value[i] * wcos;
+        nNormal.y -= dir.y * f * uniforms.wamplitudes.value[i] * wcos;
+        nNormal.z -= nStp * wsin;
+    }
+
+    return {nPosition: nPosition, nNormal: nNormal.normalize() };
+}
+
 // Updates everything
 function update() {
     if(parameters.tId === -1){
         passes[1].controls.enabled = true;
         passes[2].controls.enabled = false;
+        const response = bounce(new THREE.Vector2(torusMesh.position.x, torusMesh.position.z));
+
+        // Define the default forward vector (assuming the mesh's forward direction is along the z-axis)
+        const forward = new THREE.Vector3(0, 0, 1);
+
+        // Calculate the rotation quaternion that rotates the forward vector to the normal
+        const quaternion = new THREE.Quaternion();
+        quaternion.setFromUnitVectors(forward, response.nNormal);
+        // Apply the quaternion rotation to the mesh
+        torusMesh.quaternion.copy(quaternion);
+        torusMesh.position.y = response.nPosition.z;        
+        torusMesh.updateMatrix();
     }
     else{
         passes[1].controls.enabled = false;
