@@ -30,7 +30,6 @@ import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { fstPassFShader, fstPassVShader, sndPassFShader, sndPassVShader, thrPassFShader, thrPassVShader } from './shaders.js';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import Stats from 'three/addons/libs/stats.module.js';
-import { MapControls } from 'three/addons/controls/MapControls.js';
 
 /////////////////////////////////////////////
 /////////////Constants Section///////////////
@@ -231,8 +230,17 @@ function initSndPass() {
         ocean, 
         new THREE.ShaderMaterial({
             side: THREE.DoubleSide,
+            defines: {
+                PI2 : 6.28318530718,
+                PI : 3.1415926535,
+            },
             glslVersion : THREE.GLSL3,
             uniforms: {
+                scount : {value : 30},
+                roughness : {value: 1},
+                fcolor : {value: new THREE.Color(0.25, 0.25, 0.25)},
+                color : {value : new THREE.Color(0.0, 0.35, 0.73)},
+                envMap : {value : passes[1].scene.background},
                 tPosition: { value: renderTarget.textures[0] },  // Ocean Positions
                 tNormal: { value: renderTarget.textures[1] }     // Ocean Normals
             },
@@ -332,6 +340,24 @@ function update3rdPassUniforms() {
     })
 }
 
+function loadEnvMap () {
+    new EXRLoader().load('public/syferfontein_1d_clear_puresky_1k.exr', (texture) => {
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        passes[1].scene.background = texture;
+        texture.dispose();
+    })
+    
+    new EXRLoader().load('public/syferfontein_1d_clear_puresky_1k_blurred.exr', (blurred) => {
+        blurred.mapping = THREE.EquirectangularReflectionMapping;
+        passes[1].scene.traverse(child => {
+            if(child.material && child.material.isShaderMaterial){
+                child.material.uniforms.envMap.value = blurred;
+                child.material.needsUpdate = true;
+            }
+        });
+        blurred.dispose();
+    });
+};
 
 // Updates everything
 function update() {
@@ -354,9 +380,12 @@ function update() {
 // Main Function
 function main(){
     initGUI();
+    
     initFstPass();
     initSndPass();
     init3rdPass();
+    loadEnvMap ();
+    
 
     const animate = () => {
         renderFstPass();
@@ -374,12 +403,18 @@ function main(){
 }
 
 
-main();
-
-
+///////////////////////////////////////
+////////////// Events /////////////////
+///////////////////////////////////////
 
 window.addEventListener('resize', () => {
     passes[1].camera.aspect = window.innerWidth / window.innerHeight;
     passes[1].camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+
+///////////////////////////////////////
+////////////// Main /////////////////
+///////////////////////////////////////
+main();
