@@ -92,8 +92,8 @@ const passes = [
 // Initialize ocean geometry. Scenes will use this to create a mesh.
 const ocean = new THREE.PlaneGeometry(meta.owidth, meta.oheight, meta.ohorS, meta.overS); 
 const torus = new THREE.TorusGeometry();
-torus.rotateX(Math.PI/2);
 torus.translate(0,0.2,0);
+torus.rotateX(Math.PI/2);
 const torusMesh = new THREE.Mesh(
     torus,
     new THREE.MeshStandardMaterial({
@@ -428,16 +428,16 @@ function update() {
         passes[2].controls.enabled = false;
         const response = bounce(new THREE.Vector2(torusMesh.position.x, torusMesh.position.z));
 
-        // Define the default forward vector (assuming the mesh's forward direction is along the z-axis)
-        const forward = new THREE.Vector3(0, 0, 1);
+        // Calculate theta and phi
+        const theta = Math.atan2(response.nNormal.y, response.nNormal.x); // Rotation around the z-axis
+        const phi = Math.acos(response.nNormal.z); // Rotation around the y-axis
 
-        // Calculate the rotation quaternion that rotates the forward vector to the normal
-        const quaternion = new THREE.Quaternion();
-        quaternion.setFromUnitVectors(forward, response.nNormal);
-        // Apply the quaternion rotation to the mesh
-        torusMesh.quaternion.copy(quaternion);
-        torusMesh.position.y = response.nPosition.z;        
-        torusMesh.updateMatrix();
+        // Set the position of the mesh
+        torusMesh.position.y = response.nPosition.z + 0.3;    
+
+        // Apply the rotations to the mesh
+        torusMesh.rotation.set(0, -theta, -phi);
+
     }
     else{
         passes[1].controls.enabled = false;
