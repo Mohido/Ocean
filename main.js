@@ -39,7 +39,7 @@ const meta = {
     oheight : 20,       // Ocean height in THREE.JS units
     ohorS : 40,         // Ocean horizontal Segmentaion count
     overS : 40,         // Ocean vertical Segmentaion count
-    tsize : 512,        // Texture size
+    tsize : 1024,        // Texture size
     mwaves : 5          // Max number of waves can be generated
 }
 
@@ -61,8 +61,8 @@ document.body.appendChild(renderer.domElement);
 
 // multiple render target object. This is used as an output for the first pass. It won't be shown.
 const renderTarget = new THREE.WebGLRenderTarget(meta.tsize, meta.tsize, {
-    minFilter: THREE.NearestFilter,
-    magFilter: THREE.NearestFilter,
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
     wrapS: THREE.ClampToEdgeWrapping,
     wrapT: THREE.ClampToEdgeWrapping,
     type: THREE.FloatType,
@@ -136,7 +136,7 @@ function initGUI() {
         folder.add(wave, 'amplitude', 0.01, 10, 0.01);
         folder.add(wave, 'steepness', 0, 1, 0.01);
         folder.add(wave, 'angle', 0, 360, 0.1);
-        folder.add(wave, 'speed', 1, 10, 0.1);
+        folder.add(wave, 'speed', 0, 10, 0.1);
         folder.add({ remove: () => removeWave(folder, wave) }, 'remove').name(`Remove Wave ${parameters.waves.length}`);
         folder.open();
         update();
