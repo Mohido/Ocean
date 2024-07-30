@@ -47,7 +47,40 @@ const meta = {
 const stats = new Stats();
 const gui = new GUI();
 const parameters = {
-    waves: [],
+    waves: [
+        {
+            length: 14,
+            amplitude: 1,
+            steepness: 0.25,
+            angle: 162,     
+            speed: 7,
+            dir : [Math.cos(162 /180*Math.PI ), Math.sin(162 /180*Math.PI )]
+        },
+        {
+            length: 6,
+            amplitude: 0.2,
+            steepness: 0.3,
+            angle: 185.3,     
+            speed: 10,
+            dir : [Math.cos(185.3 /180 * Math.PI ), Math.sin(185.3/180*Math.PI )]
+        },
+        {
+            length: 4,
+            amplitude: 0.02,
+            steepness: 0.6,
+            angle: 315,     
+            speed: 2,
+            dir : [Math.cos(315 / 180 *Math.PI ), Math.sin(315 / 180 *Math.PI )]
+        },
+        {
+            length: 3,
+            amplitude: 0.05,
+            steepness: 0.7,
+            angle: 194,     
+            speed: 2.6,
+            dir : [Math.cos(194/180 *Math.PI ), Math.sin(194 /180 *Math.PI )]
+        }
+    ],
     tId : -1     // Used in visualization of the render targets. 0 = position texture, else = normal texture
 };
 
@@ -145,7 +178,7 @@ function initGUI() {
         };
         parameters.waves.push(wave);
         const folder = gui.addFolder(`Wave ${parameters.waves.length}`);
-        folder.add(wave, 'length', 1, 10, 0.1);
+        folder.add(wave, 'length', 1, 20, 0.1);
         folder.add(wave, 'amplitude', 0.01, 10, 0.01);
         folder.add(wave, 'steepness', 0, 1, 0.01);
         folder.add(wave, 'angle', 0, 360, 0.1).onChange((angle) => {
@@ -168,11 +201,25 @@ function initGUI() {
 
     document.body.appendChild( stats.dom );
     stats.dom.style.transformOrigin = `top left`;
-    stats.dom.style.transform = `scale(1.3)`;
-
+    stats.dom.style.transform = `scale(1.3)`;   
     // Add button to add new rows
     gui.add({ addWave }, 'addWave').name('Add Wave');
     gui.add({option : 'Main'} , 'option', ['Main', 'Normal Map', 'Position Map']).name('Choose Option').onChange(assignTId);
+
+    parameters.waves.forEach((wave,i) => {
+        const folder = gui.addFolder(`Wave ${i+1}`);
+        folder.add(wave, 'length', 1, 10, 0.1);
+        folder.add(wave, 'amplitude', 0.01, 10, 0.01);
+        folder.add(wave, 'steepness', 0, 1, 0.01);
+        folder.add(wave, 'angle', 0, 360, 0.1).onChange((angle) => {
+            const radian = (angle/180) * 3.1415926535;
+            wave.dir =  [Math.cos(radian), Math.sin(radian)]
+        });
+        folder.add(wave, 'speed', 0, 10, 0.1);
+        folder.add({ remove: () => removeWave(folder, wave) }, 'remove').name(`Remove Wave ${parameters.waves.length}`);
+        folder.close();
+    })
+
     gui.onChange(update);
 }
 
