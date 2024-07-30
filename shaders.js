@@ -20,7 +20,7 @@ export const fstPassVShader = (maxCount) =>
     varying vec3 oPosition;
 
     void main() {
-        nPosition = position.xyz;
+        nPosition = vec3(0.0);
         oPosition = position.xyz;
         nNormal = normal.xyz;
 

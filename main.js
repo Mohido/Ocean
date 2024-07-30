@@ -35,10 +35,10 @@ import Stats from 'three/addons/libs/stats.module.js';
 /////////////Constants Section///////////////
 /////////////////////////////////////////////
 const meta = {
-    owidth : 20,        // Ocean width in THREE.JS units
-    oheight : 20,       // Ocean height in THREE.JS units
-    ohorS : 40,         // Ocean horizontal Segmentaion count
-    overS : 40,         // Ocean vertical Segmentaion count
+    owidth : 100,        // Ocean width in THREE.JS units
+    oheight : 100,       // Ocean height in THREE.JS units
+    ohorS : 200,         // Ocean horizontal Segmentaion count
+    overS : 200,         // Ocean vertical Segmentaion count
     tsize : 1024,        // Texture size
     mwaves : 5          // Max number of waves can be generated
 }
