@@ -119,3 +119,45 @@ export const sndPassFShader = `
         pc_FragColor = vec4(tPos, 1.0);
     }
 `;
+
+
+
+////////////////////////////////
+
+
+export const thrPassVShader = `
+varying vec2 vUv;
+
+void main() {
+    vUv = position.xy + vec2(0.5) ;
+    gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
+}
+`;
+
+1 - 3
+
+
+
+export const thrPassFShader = `
+precision highp float;
+precision highp int;
+
+uniform int tId;                // Which texture to render
+uniform sampler2D tPosition;
+uniform sampler2D tNormal;
+
+
+varying vec2 vUv;
+
+layout(location = 0) out vec4 pc_FragColor;
+
+void main() {
+    if(vUv.x > 1.0 || vUv.y > 1.0)
+        pc_FragColor = vec4(0.0,0.0,0.0,1.0);
+    else if(tId == 0)
+        pc_FragColor = vec4(texture(tPosition, vUv).rgb, 1.0);
+    else
+        pc_FragColor = vec4(texture(tNormal, vUv).rgb, 1.0);
+}
+
+`;

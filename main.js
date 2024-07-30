@@ -27,9 +27,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'; 
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
-import { fstPassFShader, fstPassVShader, sndPassFShader, sndPassVShader } from './shaders.js';
+import { fstPassFShader, fstPassVShader, sndPassFShader, sndPassVShader, thrPassFShader, thrPassVShader } from './shaders.js';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import Stats from 'three/addons/libs/stats.module.js';
+import { MapControls } from 'three/addons/controls/MapControls.js';
 
 /////////////////////////////////////////////
 /////////////Constants Section///////////////
@@ -47,7 +48,8 @@ const meta = {
 const stats = new Stats();
 const gui = new GUI();
 const parameters = {
-    waves: []
+    waves: [],
+    tId : -1     // Used in visualization of the render targets. 0 = position texture, else = normal texture
 };
 
 // Initialize the renderer
@@ -62,6 +64,8 @@ document.body.appendChild(renderer.domElement);
 const renderTarget = new THREE.WebGLRenderTarget(meta.tsize, meta.tsize, {
     minFilter: THREE.NearestFilter,
     magFilter: THREE.NearestFilter,
+    wrapS: THREE.ClampToEdgeWrapping,
+    wrapT: THREE.ClampToEdgeWrapping,
     type: THREE.FloatType,
     format: THREE.RGBAFormat,
     encoding: THREE.LinearEncoding,
@@ -77,6 +81,11 @@ const passes = [
     {
         scene: new THREE.Scene(),
         camera: new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000),
+        controls : undefined
+    },
+    {
+        scene: new THREE.Scene(),
+        camera:  new THREE.OrthographicCamera( -0.5, 0.5, 0.5, -0.5, 0.1, 1000),
         controls : undefined
     }
 ]
@@ -134,13 +143,21 @@ function initGUI() {
         update();
     }
 
+    function assignTId(opt) {
+        switch(opt){
+            case 'Main': parameters.tId = -1; break;
+            case 'Position Map': parameters.tId = 0; break;
+            case 'Normal Map': parameters.tId = 1; break;
+        }
+    }
+
     document.body.appendChild( stats.dom );
     stats.dom.style.transformOrigin = `top left`;
     stats.dom.style.transform = `scale(1.3)`;
 
     // Add button to add new rows
     gui.add({ addWave }, 'addWave').name('Add Wave');
-    // gui.add({ update : updateFstPassUniforms }, 'update').name('Update');
+    gui.add({option : 'Main'} , 'option', ['Main', 'Normal Map', 'Position Map']).name('Choose Option').onChange(assignTId);
     gui.onChange(update);
 }
 
@@ -229,6 +246,49 @@ function initSndPass() {
     passes[1].scene.background = new THREE.Color(0,0,0);
 }
 
+function init3rdPass(){
+    // Set camera position to look down the ocean
+    passes[2].camera.position.z = 1;
+    passes[2].camera.lookAt(new THREE.Vector3(0,0,0));
+
+    passes[2].controls = new OrbitControls( passes[2].camera, renderer.domElement );
+    passes[2].controls.enableRotate = false;
+    passes[2].controls.update();
+
+    const triangle = new THREE.BufferGeometry();
+
+    // create a simple square shape. We duplicate the top left and bottom right
+    // vertices because each vertex needs to appear once per triangle.
+    const vertices = new Float32Array( [
+        -0.5, -0.5,  0.1, // v0
+        1.5,  -0.5,  0.1, // v1
+        -0.5,  1.5,  0.1, // v2
+    ] );
+    
+    // itemSize = 3 because there are 3 values (components) per vertex
+    triangle.setAttribute( 'position', new THREE.BufferAttribute( vertices, 3 ) );
+
+    const mesh = new THREE.Mesh(
+        triangle, 
+        new THREE.ShaderMaterial({
+            side: THREE.DoubleSide,
+            glslVersion : THREE.GLSL3,
+            uniforms: {
+                tId: {value : parameters.tId},
+                tPosition: { value: renderTarget.textures[0] },  // Ocean Positions
+                tNormal: { value: renderTarget.textures[1] }     // Ocean Normals
+            },
+            vertexShader: thrPassVShader,
+            fragmentShader: thrPassFShader 
+        })
+    );
+
+    // Adding the ocean
+    passes[2].scene.add(mesh);
+    passes[2].scene.background = new THREE.Color(0,0,0);
+};
+
+
 // render first pass into screen
 function viewFstPass() {
     renderer.render(passes[0].scene, passes[0].camera);
@@ -243,7 +303,13 @@ function renderFstPass() {
 
 // Renders second pass into screen
 function renderSndPass() { 
+    renderer.setSize(window.innerWidth, window.innerHeight, true);
     renderer.render(passes[1].scene, passes[1].camera);
+}
+
+function render3rdPass(){
+    renderer.setSize(meta.tsize, meta.tsize, true);
+    renderer.render(passes[2].scene, passes[2].camera);
 }
 
 function updateFstPassUniforms() {
@@ -258,9 +324,29 @@ function updateFstPassUniforms() {
     })
 }
 
+function update3rdPassUniforms() {
+    passes[2].scene.traverse( function ( child ) {
+        if ( child.material !== undefined && child.material.isShaderMaterial ) {
+            child.material.uniforms.tId.value = parameters.tId;
+        }
+    })
+}
+
+
 // Updates everything
 function update() {
+    if(parameters.tId === -1){
+        passes[1].controls.enabled = true;
+        passes[2].controls.enabled = false;
+    }
+    else{
+        passes[1].controls.enabled = false;
+        passes[2].controls.enabled = true;
+    }
+    
     passes[1].controls.update();
+    passes[2].controls.update();
+    update3rdPassUniforms();
     updateFstPassUniforms();
     stats.update();
 }
@@ -270,10 +356,15 @@ function main(){
     initGUI();
     initFstPass();
     initSndPass();
+    init3rdPass();
 
     const animate = () => {
         renderFstPass();
-        renderSndPass();
+        if(parameters.tId === -1)
+            renderSndPass();
+        else
+            render3rdPass();
+
         update();
         requestAnimationFrame(animate);
     };
@@ -284,3 +375,11 @@ function main(){
 
 
 main();
+
+
+
+window.addEventListener('resize', () => {
+    passes[1].camera.aspect = window.innerWidth / window.innerHeight;
+    passes[1].camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
