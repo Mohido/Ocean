@@ -91,7 +91,7 @@ const passes = [
 
 // Initialize ocean geometry. Scenes will use this to create a mesh.
 const ocean = new THREE.PlaneGeometry(meta.owidth, meta.oheight, meta.ohorS, meta.overS); 
-
+const torus = new THREE.TorusGeometry();
 
 
 /////////////////////////////////////////////
@@ -248,10 +248,23 @@ function initSndPass() {
             fragmentShader: sndPassFShader 
         })
     );
-        
+
+    torus.rotateX(Math.PI/2);
+    torus.translate(0,0.2,0);
+    const torusMesh = new THREE.Mesh(
+        torus,
+        new THREE.MeshStandardMaterial({
+            color:          new THREE.Color(0.3, 0, 0),
+            roughness:      0.8,
+            metalness:      0.,
+            envMapIntensity :  1,
+            envMapRotation : new THREE.Euler(0, Math.PI/2.5, 0)
+        })
+    );
+
     // Adding the ocean
     passes[1].scene.add(mesh);
-    passes[1].scene.background = new THREE.Color(0,0,0);
+    passes[1].scene.add(torusMesh);
 }
 
 function init3rdPass(){
@@ -345,6 +358,14 @@ function loadEnvMap () {
         texture.mapping = THREE.EquirectangularReflectionMapping;
         passes[1].scene.background = texture;
         passes[1].scene.backgroundRotation.y = Math.PI/2.5;
+
+        passes[1].scene.traverse(child => {
+            if(child.material && !child.material.isShaderMaterial){
+                child.material.envMap = texture;
+                child.material.needsUpdate = true;
+            }
+        });
+
         texture.dispose();
     })
     
