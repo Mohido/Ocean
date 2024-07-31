@@ -2,7 +2,7 @@
 Simulating The Ocean with Three.js and JavaScript. This project is an implementation of the first chapter of the GPU Gems book, focusing on effective water simulation.
 
 ## Try It Out
-You can try out the project [here](https://mohido.github.io/ocean).
+You can try out the project [here](https://mohido.github.io/Ocean). The data takes a little bit time to load, so be patient until everything is loaded (few seconds).
 
 ## Structure
 
