@@ -3,29 +3,226 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Threejs Simulation</title>
-
+    <title>Ocean Mini</title>
     <script type="importmap">
-    {
-        "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/+esm",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/",
-        "three/extras/" : "https://cdn.jsdelivr.net/npm/three@0.167.0/src/extras/"
+        {
+            "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/+esm",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/",
+            "three/extras/" : "https://cdn.jsdelivr.net/npm/three@0.167.0/src/extras/"
+            }
         }
-    }
     </script>
 
-
-    <style>
+     <style>
         * {
             margin: 0;
             padding: 0;
             overflow: hidden;
         }
     </style>
+
 </head>
 <body>
-    <!-- <canvas id="3ground"></canvas> -->
-    <script type="module" src="./main.js"></script>
+    <script type="module">
+        import * as THREE from 'three';
+        import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+
+        // Constants
+        const owidth = 20;
+        const oheight = 20; 
+        const odetails = 40;
+        const tsize = 512; 
+        const maxwaves = 5;
+        const waves = [
+            {
+                length: 5,
+                amplitude: 0.5,
+                speed: 1,
+                dir: [1,0],
+                steepness: 0.6,
+            }
+        ];
+        
+        // THREEJS Objects
+        const renderer = new THREE.WebGLRenderer();
+        if (!renderer.capabilities.isWebGL2) {
+           console.error('WebGL2 is required but not supported');
+        }
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        
+        const oceanG = new THREE.PlaneGeometry(owidth,oheight, odetails, odetails);
+        const renderTarget = new THREE.WebGLRenderTarget(tsize, tsize, {
+            type: THREE.FloatType,
+            format: THREE.RGBAFormat,
+            encoding: THREE.LinearEncoding,
+            count : 1
+        });
+
+        function getTime() {
+            return performance.now() / 2000;
+        }
+
+
+        function wavesToUniforms(){
+            const PI2 = Math.PI*2;            
+            
+            return {
+                    wcount :       {value : waves.length},
+                    wfrequencies:  {value : (waves.map((wave) => PI2/wave.length))},
+                    wfrequencies_: {value : (waves.map((wave) => wave.length/PI2))},
+                    wphases:       {value : (waves.map((wave) => wave.speed * getTime() * PI2/wave.length))} ,
+                    wamplitudes:   {value : (waves.map((wave) => wave.amplitude) )} ,
+                    wdirs:         {value : (waves.flatMap(wave => wave.dir)) } ,     
+                    wsteepnesses:  {value : (waves.map((wave) => wave.steepness) )} 
+                }
+        }
+
+
+        function fstPassVShader(mwaves){
+            return `
+                uniform int wcount;
+                uniform float wfrequencies[${mwaves}];
+                uniform float wfrequencies_[${mwaves}];
+                uniform float wphases[${mwaves}];
+                uniform float wamplitudes[${mwaves}];
+                uniform float wdirs[${mwaves*2}];
+                uniform float wsteepnesses[${mwaves}];
+
+                varying vec3 nPosition;
+                
+                void main() {
+                    nPosition = vec3(0.0);  
+
+                    for(int i = 0 ; i < wcount ; i++){
+                        // Extract data
+                        float f_ = wfrequencies_[i];
+                        float f = wfrequencies[i];
+                        float p = wphases[i];
+                        float s = wsteepnesses[i];
+                        float a = wamplitudes[i];
+
+                        vec2 dir = normalize(vec2(wdirs[i*2], wdirs[i*2+1]));
+                        float dp = dot(dir, position.xy);
+
+                        // Gerstner Algorithm
+                        float wcos = cos(dp*f + p);
+                        float wsin = sin(dp*f + p);
+
+                        nPosition.x += s * f_ * dir.x * wcos;
+                        nPosition.y += s * f_ * dir.y * wcos;
+                        nPosition.z += a * wsin;
+                    }
+                    nPosition.x /= float(wcount);
+                    nPosition.y /= float(wcount);
+
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+
+            `
+        }
+
+        const passes = [
+            {
+                scene: new THREE.Scene(),
+                camera : new THREE.OrthographicCamera(owidth / -2, owidth / 2, oheight / 2, oheight / -2, 0.1, 1000),
+                ocean : undefined,
+                init : function(){
+                    this.camera.position.z = 5; 
+                    this.camera.lookAt(new THREE.Vector3(0,0,0));
+                    this.ocean = new THREE.Mesh(oceanG,
+                        new THREE.ShaderMaterial({
+                            glslVersion : THREE.GLSL3,
+                            side: THREE.DoubleSide,
+                            defines: {
+                                PI2 : 6.28318530718,
+                                PI : 3.1415926535,
+                            },
+                            uniforms: wavesToUniforms(),
+                            vertexShader: fstPassVShader(maxwaves),
+                            fragmentShader: `
+                                layout(location = 0) out vec4 tPosition;
+
+                                varying vec3 nPosition;
+                                void main() {
+                                    tPosition = vec4(nPosition, 1.0); 
+                                }
+                            `
+                        })
+                    );
+
+                    this.scene.add(this.ocean);
+                },
+                render: function() {
+                    renderer.setRenderTarget(renderTarget);
+                    renderer.render(this.scene, this.camera);
+                    renderer.setRenderTarget(null);
+                },
+                view: function(){
+                    renderer.render(this.scene, this.camera);
+                },
+                update : function(){
+                    this.ocean.material.uniforms.wphases.value = waves.map((wave) => wave.speed * getTime() * Math.PI*2/wave.length);
+                }
+            },
+            {
+                scene: new THREE.Scene(),
+                camera :  new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000),
+                controls : undefined,
+                ocean : undefined,
+                init : function(){
+                    this.camera.position.x = 5;
+                    this.camera.position.y = 5;
+                    this.camera.position.z = 2;
+                    this.camera.up = new THREE.Vector3(0,0,1);
+                    this.camera.lookAt(new THREE.Vector3(0,0,0));
+
+                    this.controls = new OrbitControls(this.camera, renderer.domElement);
+
+                    this.ocean = new THREE.Mesh(
+                        oceanG, 
+                        new THREE.ShaderMaterial({
+                            wireframe: true,
+                            uniforms: {
+                                tPosition: { value: renderTarget.textures[0] },  // Ocean Positions
+                            },
+                            vertexShader: `
+                                uniform sampler2D tPosition;
+                                void main() {
+                                    vec3 nPos = texture(tPosition, uv).xyz + position.xyz; 
+                                    gl_Position = projectionMatrix * modelViewMatrix * vec4(nPos, 1.0);
+                                }`
+                            ,
+                            fragmentShader: `
+                                void main(){
+                                    gl_FragColor = vec4(0.0, 0.35, 0.73,1);
+                                }
+                            ` 
+                        })
+                    );
+
+                    this.scene.add(this.ocean);
+                },
+                render: function() {
+                    renderer.render(this.scene, this.camera);
+                },
+                update : function(){
+                    this.controls.update();
+                }
+            },
+
+        ]
+        
+
+        passes.forEach(pass => pass.init());
+
+        function animate(){
+            requestAnimationFrame(animate);
+            passes.forEach(pass => {pass.update() ; pass.render()});
+        }
+
+        animate();
+    </script>
 </body>
 </html>
